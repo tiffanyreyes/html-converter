@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>HTML Single-Line Converter</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>HTML Single-Line Converter</h1>
+        <p>Edit HTML on the left, see a preview and a single-line version you can copy for inputs that accept only one line.</p>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <span class="badge">Live</span>
+        <span class="badge">No external deps</span>
+      </div>
+    </header>
+
+    <div class="layout">
+      <div class="editor-card">
+        <label>HTML Template
+          <div class="controls">
+            <select id="templateSelect" title="Insert template">
+              <option value="sample">Sample - Basic Page</option>
+              <option value="minimal">Minimal HTML</option>
+              <option value="form">Form snippet</option>
+              <option value="list">List snippet</option>
+              <option value="clear">Clear</option>
+            </select>
+            <button id="insertBtn">Insert</button>
+            <button id="formatBtn">Convert Now</button>
+          </div>
+        </label>
+        <textarea id="editor" class="input" spellcheck="false" aria-label="HTML editor"></textarea>
+        <footer>
+          <div class="badge">Tip: Cmd/Ctrl+Enter to convert & copy</div>
+          <div class="badge" id="charCount">0 chars</div>
+        </footer>
+      </div>
+
+      <div class="right">
+        <div class="preview-card">
+          <label>Rendered Preview</label>
+          <div class="preview" id="preview"></div>
+        </div>
+
+        <div class="editor-card">
+          <label>Single-line HTML</label>
+          <div class="singleline" id="singleline" contenteditable="false" aria-live="polite"></div>
+          <div class="copy-row">
+            <button class="btn" id="copyBtn">Copy</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const editor = document.getElementById('editor');
+    const preview = document.getElementById('preview');
+    const singleline = document.getElementById('singleline');
+    const copyBtn = document.getElementById('copyBtn');
+    const insertBtn = document.getElementById('insertBtn');
+    const templateSelect = document.getElementById('templateSelect');
+    const formatBtn = document.getElementById('formatBtn');
+    const charCount = document.getElementById('charCount');
+
+    const templates = {
+      sample: `<!doctype html>\n<html lang="en">\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content="width=device-width,initial-scale=1">\n  <title>Sample Page</title>\n</head>\n<body>\n  <header>\n    <h1>Hello, world!</h1>\n  </header>\n  <main>\n    <p>This is a sample page.</p>\n  </main>\n</body>\n</html>` ,
+      minimal: `<!doctype html><html><head><meta charset="utf-8"><title>Title</title></head><body></body></html>`,
+      form: `<form action=\"/submit\" method=\"post\">\n  <label>Name: <input name=\"name\"></label>\n  <button type=\"submit\">Send</button>\n</form>` ,
+      list: `<ul>\n  <li>First</li>\n  <li>Second</li>\n  <li>Third</li>\n</ul>` ,
+      clear: ''
+    };
+
+    function updateCharCount() {
+      charCount.textContent = editor.value.length + ' chars';
+    }
+
+    function toSingleLine(html){
+      if (!html) return '';
+      // Preserve content inside <pre>, <code>, and <textarea> by temporarily replacing them
+      const preserveTags = ['pre','code','textarea'];
+      const placeholders = [];
+      preserveTags.forEach(tag => {
+        html = html.replace(new RegExp(`<${tag}([\\s\\S]*?)>([\\s\\S]*?)<\\/${tag}>`, 'gi'), (m, a, inside) => {
+          const key = `__PRESERVE_${placeholders.length}__`;
+          placeholders.push({key, tag, attrs: a, content: inside});
+          return `<${tag}${a}>${key}</${tag}>`;
+        });
+      });
+
+      // Collapse whitespace and remove spaces between tags
+      let single = html.replace(/\r?\n/g,' ')
+                       .replace(/\s+/g,' ')
+                       .replace(/>\s+</g,'><')
+                       .trim();
+
+      // Restore preserved content
+      placeholders.forEach(p => {
+        single = single.replace(p.key, p.content);
+      });
+
+      return single;
+    }
+
+    function update(){
+      const val = editor.value;
+      updateCharCount();
+      // live preview - set innerHTML (expecting user knows not to run untrusted scripts here)
+      preview.innerHTML = val;
+      // single line conversion
+      singleline.textContent = toSingleLine(val);
+    }
+
+    // Debounce input to improve performance
+    let timer = null;
+    editor.addEventListener('input', ()=>{
+      clearTimeout(timer);
+      timer = setTimeout(update, 200);
+    });
+
+    // Insert templates
+    insertBtn.addEventListener('click', ()=>{
+      const key = templateSelect.value;
+      const t = templates[key] || '';
+      editor.value = t;
+      update();
+    });
+
+    // Convert now button
+    formatBtn.addEventListener('click', ()=>{
+      update();
+      copySingleline();
+    });
+
+    // Copy function
+    async function copySingleline(){
+      const text = singleline.textContent || '';
+      if (!text) return flash(copyBtn, 'No content');
+      try{
+        await navigator.clipboard.writeText(text);
+        flash(copyBtn, 'Copied');
+      }catch(e){
+        // fallback
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position='fixed';ta.style.opacity='0';
+        document.body.appendChild(ta);ta.select();
+        try{document.execCommand('copy');flash(copyBtn,'Copied');}catch(err){flash(copyBtn,'Copy failed')}
+        document.body.removeChild(ta);
+      }
+    }
+
+    function flash(el, txt){
+      const old = el.textContent;
+      el.textContent = txt;
+      setTimeout(()=> el.textContent = old, 1200);
+    }
+
+    copyBtn.addEventListener('click', copySingleline);
+
+    // Keyboard shortcut Cmd/Ctrl+Enter -> convert & copy
+    window.addEventListener('keydown', (e)=>{
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter'){
+        e.preventDefault();
+        update();
+        copySingleline();
+      }
+    });
+
+    // Initialize with sample template
+    editor.value = templates.sample;
+    update();
+
+    // Allow dropping a file onto the editor to load its content
+    editor.addEventListener('dragover', e=>{e.preventDefault();editor.classList.add('drag')});
+    editor.addEventListener('dragleave', e=>{editor.classList.remove('drag')});
+    editor.addEventListener('drop', e=>{
+      e.preventDefault();editor.classList.remove('drag');
+      const f = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f){
+        const reader = new FileReader();
+        reader.onload = () => { editor.value = reader.result; update(); };
+        reader.readAsText(f);
+      }
+    });
+  </script>
+</body>
+</html>
